@@ -1,62 +1,83 @@
-import { NavLink } from 'react-router-dom';
-import { Shield, FileText, Clock, Info, Zap } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { analyzeVulnerabilities, parseScanFile } from '../utils/api.js';
 
-const NAV = [
-  { to: '/', icon: Zap, label: 'Generate' },
-  { to: '/history', icon: Clock, label: 'History' },
-  { to: '/about', icon: Info, label: 'About' },
-];
+const HISTORY_KEY = 'vulnai_history';
 
-export default function Layout({ children }) {
-  return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside className="w-56 shrink-0 bg-bg-card border-r border-bg-border flex flex-col">
-        {/* Logo */}
-        <div className="px-5 py-5 border-b border-bg-border">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-accent-red flex items-center justify-center shrink-0">
-              <Shield size={16} className="text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-white leading-none">VulnAI</p>
-              <p className="text-xs text-gray-500 mt-0.5">Reporter</p>
-            </div>
-          </div>
-        </div>
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
 
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {NAV.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  isActive
-                    ? 'bg-accent-red text-white font-medium'
-                    : 'text-gray-400 hover:text-white hover:bg-bg-elevated'
-                }`
-              }
-            >
-              <Icon size={16} />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
+function saveToHistory(entry) {
+  const history = loadHistory();
+  history.unshift({ ...entry, id: Date.now(), createdAt: new Date().toISOString() });
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 50)));
+}
 
-        {/* Footer */}
-        <div className="px-4 py-4 border-t border-bg-border">
-          <p className="text-xs text-gray-600">Powered by Claude claude-sonnet-4-6</p>
-          <p className="text-xs text-gray-700 mt-0.5">AWS Lambda + API Gateway</p>
-        </div>
-      </aside>
+export function useReport() {
+  const [state, setState] = useState({
+    loading: false,
+    error: null,
+    report: null,
+    metadata: null,
+    parsedFindings: null,
+  });
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        {children}
-      </main>
-    </div>
-  );
+  const analyze = useCallback(async (scanText, reportType, scanFormat = 'auto') => {
+    setState({ loading: true, error: null, report: null, metadata: null, parsedFindings: null });
+    try {
+      const result = await analyzeVulnerabilities(scanText, reportType, scanFormat);
+      setState({ loading: false, error: null, report: result.report, metadata: result.metadata, parsedFindings: null });
+      saveToHistory({
+        reportType,
+        detectedFormat: result.metadata?.detectedFormat,
+        reportPreview: result.report.substring(0, 200),
+        inputLength: scanText.length,
+      });
+      return result;
+    } catch (err) {
+      setState((s) => ({ ...s, loading: false, error: err.message }));
+      throw err;
+    }
+  }, []);
+
+  const parseFile = useCallback(async (content, format = 'auto') => {
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const result = await parseScanFile(content, format);
+      setState((s) => ({ ...s, loading: false, parsedFindings: result }));
+      return result;
+    } catch (err) {
+      setState((s) => ({ ...s, loading: false, error: err.message }));
+      throw err;
+    }
+  }, []);
+
+  const reset = useCallback(() => {
+    setState({ loading: false, error: null, report: null, metadata: null, parsedFindings: null });
+  }, []);
+
+  return { ...state, analyze, parseFile, reset };
+}
+
+export function useHistory() {
+  const [history, setHistory] = useState(loadHistory);
+
+  const refresh = useCallback(() => setHistory(loadHistory()), []);
+
+  const remove = useCallback((id) => {
+    const updated = loadHistory().filter((h) => h.id !== id);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+    setHistory(updated);
+  }, []);
+
+  const clear = useCallback(() => {
+    localStorage.removeItem(HISTORY_KEY);
+    setHistory([]);
+  }, []);
+
+  return { history, refresh, remove, clear };
 }
