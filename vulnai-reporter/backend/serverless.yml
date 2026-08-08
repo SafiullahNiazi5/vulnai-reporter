@@ -1,0 +1,74 @@
+service: vulnai-reporter
+
+frameworkVersion: '3'
+
+plugins:
+  - serverless-offline
+  - serverless-dotenv-plugin
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512
+  timeout: 60           # Claude streaming can take time
+  environment:
+    ANTHROPIC_API_KEY: ${ssm:/vulnai/${self:provider.stage}/anthropic-api-key}
+    ALLOWED_ORIGIN: ${ssm:/vulnai/${self:provider.stage}/allowed-origin}
+    NODE_OPTIONS: "--experimental-vm-modules"
+  httpApi:
+    cors:
+      allowedOrigins:
+        - ${ssm:/vulnai/${self:provider.stage}/allowed-origin}
+        - http://localhost:5173        # local dev
+      allowedMethods:
+        - GET
+        - POST
+        - OPTIONS
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - X-Request-ID
+      maxAge: 86400
+
+functions:
+  analyze:
+    handler: functions/analyze.handler
+    description: Analyze vulnerability scan with Claude AI
+    events:
+      - httpApi:
+          path: /analyze
+          method: POST
+    environment:
+      FUNCTION_NAME: analyze
+
+  parse:
+    handler: functions/parse.handler
+    description: Parse structured scan files (Nessus XML, Trivy JSON)
+    timeout: 30
+    events:
+      - httpApi:
+          path: /parse
+          method: POST
+    environment:
+      FUNCTION_NAME: parse
+
+  health:
+    handler: functions/health.handler
+    description: Health check
+    events:
+      - httpApi:
+          path: /health
+          method: GET
+
+custom:
+  serverless-offline:
+    httpPort: 3001
+    host: 0.0.0.0
+    reloadHandler: true
+  dotenv:
+    path: .env
+    include:
+      - ANTHROPIC_API_KEY
+      - ALLOWED_ORIGIN

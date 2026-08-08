@@ -1,0 +1,23 @@
+{
+  "name": "vulnai-reporter-backend",
+  "version": "1.0.0",
+  "description": "AWS Lambda backend for VulnAI Reporter",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "serverless offline start --reloadHandler",
+    "deploy": "serverless deploy --stage prod",
+    "deploy:dev": "serverless deploy --stage dev",
+    "logs": "serverless logs -f analyze --tail",
+    "remove": "serverless remove"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "fast-xml-parser": "^4.5.0"
+  },
+  "devDependencies": {
+    "serverless": "^3.38.0",
+    "serverless-offline": "^13.3.0",
+    "serverless-dotenv-plugin": "^6.0.0"
+  }
+}

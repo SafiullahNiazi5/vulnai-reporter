@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: VulnAI Reporter — Lambda + API Gateway
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    MemorySize: 512
+    Timeout: 60
+    Environment:
+      Variables:
+        ANTHROPIC_API_KEY: !Sub '{{resolve:ssm:/vulnai/${Stage}/anthropic-api-key}}'
+        ALLOWED_ORIGIN: !Sub '{{resolve:ssm:/vulnai/${Stage}/allowed-origin}}'
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+
+Resources:
+  VulnAiApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - !Sub '{{resolve:ssm:/vulnai/${Stage}/allowed-origin}}'
+          - 'http://localhost:5173'
+        AllowMethods: ['GET', 'POST', 'OPTIONS']
+        AllowHeaders: ['Content-Type', 'Authorization']
+        MaxAge: 86400
+
+  AnalyzeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: functions/analyze.handler
+      CodeUri: ../backend/
+      Description: Analyze scan with Claude
+      Events:
+        Analyze:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VulnAiApi
+            Path: /analyze
+            Method: POST
+
+  ParseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: functions/parse.handler
+      CodeUri: ../backend/
+      Timeout: 30
+      Description: Parse structured scan files
+      Events:
+        Parse:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VulnAiApi
+            Path: /parse
+            Method: POST
+
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: functions/health.handler
+      CodeUri: ../backend/
+      Timeout: 5
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref VulnAiApi
+            Path: /health
+            Method: GET
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${VulnAiApi}.execute-api.${AWS::Region}.amazonaws.com'
